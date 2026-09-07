@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Royal Crete - ERP Dashboard</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    // --- Shared UI Components ---
+    function Button({ children, onClick, variant = "primary", type = "button", className = "" }) {
+      const baseStyle = "px-4 py-2 rounded text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-1";
+      const variants = {
+        primary: "bg-indigo-600 hover:bg-indigo-700 text-white focus:ring-indigo-500",
+        secondary: "bg-slate-200 hover:bg-slate-300 text-slate-700 focus:ring-slate-400",
+        success: "bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500",
+        danger: "bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-500",
+      };
+      return (
+        <button type={type} onClick={onClick} className={`${baseStyle} ${variants[variant] || variants.primary} ${className}`}>
+          {children}
+        </button>
+      );
+    }
+
+    function Input({ label, value, onChange, type = "text", placeholder = "", required = false, step }) {
+      return (
+        <div className="flex flex-col gap-1 w-full">
+          {label && <label className="text-xs font-semibold text-slate-600 uppercase">{label}</label>}
+          <input
+            type={type}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            required={required}
+            step={step}
+            className="px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:border-indigo-500 w-full"
+          />
+        </div>
+      );
+    }
+
+    function DataTable({ title, columns, data }) {
+      return (
+        <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+          {title && <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-bold text-slate-700">{title}</div>}
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="w-full text-left text-sm text-slate-600 relative">
+              <thead className="bg-slate-100 text-slate-700 uppercase text-xs sticky top-0 z-10">
+                <tr>
+                  {columns.map((col) => (
+                    <th key={col.key} className="px-3 py-3 font-semibold bg-slate-100 whitespace-nowrap">{col.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {data.length === 0 ? (
+                  <tr>
+                    <td colSpan={columns.length} className="px-4 py-4 text-center text-slate-400">No records found.</td>
+                  </tr>
+                ) : (
+                  data.map((row, idx) => (
+                    <tr key={row.id || idx} className={`hover:bg-slate-50 ${row.isTotal ? 'bg-indigo-50 font-bold text-slate-900' : ''}`}>
+                      {columns.map((col) => (
+                        <td key={col.key} className="px-3 py-2.5 whitespace-nowrap">{row[col.key]}</td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Authentication ---
+    function useAuth() {
+      const [auth, setAuth] = useState({
+        token: null,
+        role: "Admin",
+        fullName: "Farrakh Muneer",
+      });
+      const login = (role, fullName) => setAuth({ token: "demo-token", role, fullName });
+      const logout = () => setAuth({ token: null, role: "", fullName: "" });
+      return { ...auth, login, logout };
+    }
+
+    function LoginScreen({ onLogin }) {
+      const [name, setName] = useState("Farrakh Muneer");
+      const [role, setRole] = useState("Admin");
+      const handleSubmit = (e) => { e.preventDefault(); onLogin(role, name); };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-200">
+          <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow-md w-80 space-y-4">
+            <h2 className="text-xl font-bold text-indigo-600">Royal Crete Login</h2>
+            <Input label="Full Name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <div>
+              <label className="text-xs font-semibold text-slate-600 uppercase">Role</label>
+              <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:border-indigo-500">
+                <option value="Admin">Admin</option>
+                <option value="Production Manager">Production Manager</option>
+                <option value="Store Keeper">Store Keeper</option>
+                <option value="Procurement Officer">Procurement Officer</option>
+              </select>
+            </div>
+            <Button type="submit" className="w-full">Sign In</Button>
+          </form>
+        </div>
+      );
+    }
+
+    // --- Catalogs ---
+    const rawItemsList = [
+      "Kerb Stone (K4) 2000 PSI", "Kerb Stone (K4) 3000 PSI", "Kerb Stone (K3) 2300 PSI", "Kerb Stone (K5) 2000 PSI", "Kerb Stone (K5) 3000 PSI",
+      "Paver Tile (Gray) 5000 PSI, 80mm", "Paver Tile (Red) 5000 PSI, 80mm", "Paver Tile (Red) 3000 PSI, 60mm", "Paver Tile (Gray) 3000 PSI, 60mm",
+      "Paver Tile (Red) 7000 PSI, 60mm", "Paver Tile (Gray) 7000 PSI, 60mm", "Paver Tile (Gray) 5000 PSI, 50mm", "Paver Tile (Red) 5000 PSI, 50mm",
+      "Hollow Block 4\" x 8\" x 16\"", "Hollow Block 8\" x 8\" x 16\"", "Hollow Block 6\" x 8\" x 16\"", "Solid Block 6\" x 8\" x 12\"",
+      "Girder 6'", "Girder 8'", "Girder 12'", "RCC Pipe 6\", 8 feet", "RCC Pipe 9\", 8 feet", "RCC Pipe 12\", 8 feet"
+    ];
+
+    const initialFinishedGoods = rawItemsList.map((itemName, index) => {
+      const id = 101 + index;
+      let unit = "Nos";
+      if (itemName.includes("Paver") || itemName.includes("Tile")) unit = "SFT";
+      if (itemName.includes("Pipe") || itemName.includes("Girder") || itemName.includes("Kerb")) unit = "RFT";
+      return {
+        id,
+        name: itemName,
+        stock: Math.floor(Math.random() * 2500) + 200,
+        unit: unit,
+        category: itemName.includes("Pipe") ? "Pipes" : itemName.includes("Paver") ? "Pavers" : itemName.includes("Block") ? "Blocks" : "Precast"
+      };
+    });
+
+    const initialRawMaterials = [
+      { id: "RM-1", name: "Cement", stock: 1384.26, unit: "Bags", costPerUnit: 1450.00 },
+      { id: "RM-2", name: "Sand", stock: 5703.89, unit: "Tons", costPerUnit: 1200.00 },
+      { id: "RM-3", name: "Pan Crush", stock: 5486.61, unit: "Tons", costPerUnit: 2300.00 },
+      { id: "RM-4", name: "Steel", stock: 1552.04, unit: "Kg", costPerUnit: 260.00 },
+      { id: "RM-5", name: "Khaka", stock: 1775.80, unit: "Tons", costPerUnit: 850.00 },
+      { id: "RM-6", name: "Fly Ash", stock: 95.46, unit: "Tons", costPerUnit: 900.00 },
+      { id: "RM-7", name: "Steel 3.5", stock: 13.00, unit: "Kg", costPerUnit: 275.00 }
+    ];
+
+    const getDesignMix = (productName) => {
+      const mix = [];
+      if (productName.includes("Paver") || productName.includes("Tile")) {
+        mix.push({ rmId: "RM-1", qty: 0.1 }, { rmId: "RM-2", qty: 0.05 }, { rmId: "RM-3", qty: 0.08 });
+      } else if (productName.includes("Pipe")) {
+        mix.push({ rmId: "RM-1", qty: 0.5 }, { rmId: "RM-2", qty: 0.2 }, { rmId: "RM-3", qty: 0.3 }, { rmId: "RM-4", qty: 2.0 });
+      } else if (productName.includes("Block")) {
+        mix.push({ rmId: "RM-1", qty: 0.08 }, { rmId: "RM-5", qty: 0.04 });
+      } else if (productName.includes("Girder")) {
+        mix.push({ rmId: "RM-1", qty: 1.2 }, { rmId: "RM-2", qty: 0.4 }, { rmId: "RM-3", qty: 0.6 }, { rmId: "RM-4", qty: 8.5 });
+      } else {
+        mix.push({ rmId: "RM-1", qty: 0.2 }, { rmId: "RM-2", qty: 0.1 });
+      }
+      return mix;
+    };
+
+    // --- PRODUCTION MODULE ---
+    function ProductionModule({ finishedGoods, rawMaterials, onAddProduction, productionRecords }) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const [prodDate, setProdDate] = useState(todayStr);
+      const [batch, setBatch] = useState("");
+      const [selectedProductId, setSelectedProductId] = useState(finishedGoods[0]?.id || "");
+      const [quantity, setQuantity] = useState("");
+      const [unit, setUnit] = useState(finishedGoods[0]?.unit || "Nos");
+      const [status, setStatus] = useState("Completed");
+      const [message, setMessage] = useState("");
+
+      const handleProductChange = (e) => {
+        const prodId = parseInt(e.target.value);
+        setSelectedProductId(prodId);
+        const prodObj = finishedGoods.find((p) => p.id === prodId);
+        if (prodObj) setUnit(prodObj.unit);
+      };
+
+      const handleAddRecord = (e) => {
+        e.preventDefault();
+        if (!batch || !quantity || !selectedProductId || !prodDate) return;
+
+        const selectedProductObj = finishedGoods.find((p) => p.id === parseInt(selectedProductId));
+        const productName = selectedProductObj ? selectedProductObj.name : "Unknown Product";
+        const qtyNum = parseFloat(quantity);
+
+        onAddProduction({
+          date: prodDate,
+          batch,
+          productId: parseInt(selectedProductId),
+          productName,
+          quantity: qtyNum,
+          unit,
+          status,
+        });
+
+        setBatch("");
+        setQuantity("");
+        setMessage(`✅ Production recorded: ${quantity} ${unit} of "${productName}" on ${prodDate}`);
+        setTimeout(() => setMessage(""), 4000);
+      };
+
+      return (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-slate-800">Daily Production Entry</h2>
+            <div className="text-sm text-slate-500">Total Batches: {productionRecords.length}</div>
+          </div>
+
+          {message && <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm rounded font-medium">{message}</div>}
+
+          <form onSubmit={handleAddRecord} className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+              <Input label="Production Date" type="date" value={prodDate} onChange={(e) => setProdDate(e.target.value)} required />
+              <Input label="Batch / Shift #" placeholder="e.g. BATCH-103" value={batch} onChange={(e) => setBatch(e.target.value)} required />
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-slate-600 uppercase">Product Selection</label>
+                <select value={selectedProductId} onChange={handleProductChange} className="px-3 py-2 border border-slate-300 rounded text-sm bg-white">
+                  {finishedGoods.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} ({item.stock} {item.unit})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <Input label="Quantity Produced" type="number" placeholder="0.00" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-slate-600 uppercase">Status</label>
+                <select value={status} onChange={(e) => setStatus(e.target.value)} className="px-3 py-2 border border-slate-300 rounded text-sm bg-white">
+                  <option value="Completed">Completed</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Rejected">Rejected / QC Fail</option>
+                </select>
+              </div>
+
+              <Button type="submit">Submit Production</Button>
+            </div>
+          </form>
+
+          <DataTable title="Daily Production Log" columns={[
+            { key: "date", label: "Date" },
+            { key: "batch", label: "Batch #" },
+            { key: "productName", label: "Product" },
+            { key: "quantity", label: "Qty" },
+            { key: "unit", label: "Unit" },
+            { key: "status", label: "Status" },
+          ]} data={productionRecords} />
+        </div>
+      );
+    }
+
+    // --- STORE MODULE ---
+    function StoreModule({ finishedGoods, rawMaterials, productionRecords, salesOrders }) {
+      const [storeTab, setStoreTab] = useState("finished");
+
+      // Calculate consumption from production records
+      const calculateConsumption = () => {
+        const consumption = {};
+        rawMaterials.forEach(rm => consumption[rm.id] = 0);
+
+        productionRecords.forEach(record => {
+          if (record.status === "Completed") {
+            const product = finishedGoods.find(p => p.id === record.productId);
+            if (product) {
+              const designMix = getDesignMix(product.name);
+              designMix.forEach(req => {
+                consumption[req.rmId] = (consumption[req.rmId] || 0) + (req.qty * record.quantity);
+              });
+            }
+          }
+        });
+
+        return consumption;
+      };
+
+      const consumption = calculateConsumption();
+
+      const finishedGoodsTableData = finishedGoods.map(fg => {
+        const designMix = getDesignMix(fg.name);
+        let mfgCost = 0;
+        let mixBreakdown = [];
+        
+        designMix.forEach(req => {
+          const rm = rawMaterials.find(r => r.id === req.rmId);
+          if (rm) {
+            mfgCost += (rm.costPerUnit * req.qty);
+            mixBreakdown.push(`${req.qty} ${rm.unit} ${rm.name}`);
+          }
+        });
+
+        // Calculate sold qty
+        const soldQty = salesOrders.reduce((sum, order) => {
+          return order.productId === fg.id ? sum + order.quantity : sum;
+        }, 0);
+
+        return {
+          ...fg,
+          soldQty,
+          available: fg.stock - soldQty,
+          mfgCostFormatted: "Rs " + mfgCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}),
+          mixDetails: mixBreakdown.join(", ")
+        };
+      });
+
+      const rawMaterialsTableData = rawMaterials.map(rm => ({
+        ...rm,
+        consumed: (consumption[rm.id] || 0).toFixed(2),
+        stockFormatted: rm.stock.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + rm.unit,
+        costFormatted: "Rs " + rm.costPerUnit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}),
+        totalValueFormatted: "Rs " + (rm.stock * rm.costPerUnit).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
+      }));
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Store Inventory Control</h2>
+
+          <div className="flex gap-2 border-b border-slate-200 pb-2">
+            <button onClick={() => setStoreTab("finished")} className={`px-4 py-2 text-sm font-semibold rounded transition ${storeTab === 'finished' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'}`}>
+              Finished Goods ({finishedGoods.length})
+            </button>
+            <button onClick={() => setStoreTab("raw")} className={`px-4 py-2 text-sm font-semibold rounded transition ${storeTab === 'raw' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'}`}>
+              Raw Materials ({rawMaterials.length})
+            </button>
+          </div>
+
+          {storeTab === "finished" && (
+            <DataTable title="Finished Goods - Stock Status (Linked to Production & Sales)" columns={[
+              { key: "id", label: "Item Code" },
+              { key: "name", label: "Product" },
+              { key: "stock", label: "Total Stock" },
+              { key: "soldQty", label: "Sold (Pending)" },
+              { key: "available", label: "Available" },
+              { key: "unit", label: "Unit" },
+              { key: "mfgCostFormatted", label: "Mfg Cost/Unit" },
+            ]} data={finishedGoodsTableData} />
+          )}
+
+          {storeTab === "raw" && (
+            <DataTable title="Raw Materials - Stock & Consumption" columns={[
+              { key: "id", label: "Material" },
+              { key: "name", label: "Name" },
+              { key: "stockFormatted", label: "Stock" },
+              { key: "consumed", label: "Consumed (This Period)" },
+              { key: "costFormatted", label: "Cost/Unit" },
+              { key: "totalValueFormatted", label: "Total Value" },
+            ]} data={rawMaterialsTableData} />
+          )}
+        </div>
+      );
+    }
+
+    // --- PROCUREMENT MODULE ---
+    function ProcurementModule({ rawMaterials, onReceiveMaterial, purchases }) {
+      const [purchaseType, setPurchaseType] = useState("raw");
+      const [selectedRmId, setSelectedRmId] = useState(rawMaterials[0]?.id || "");
+      const [spareName, setSpareName] = useState("");
+      const [qty, setQty] = useState("");
+      const [rate, setRate] = useState("");
+      const [vendor, setVendor] = useState("");
+      const [message, setMessage] = useState("");
+
+      const handleReceive = (e) => {
+        e.preventDefault();
+        if (!qty || !rate || !vendor) return;
+        
+        const receivedQty = parseFloat(qty);
+        const purchaseRate = parseFloat(rate);
+        const totalAmount = receivedQty * purchaseRate;
+
+        if (purchaseType === "raw") {
+          const rm = rawMaterials.find(r => r.id === selectedRmId);
+          onReceiveMaterial(selectedRmId, receivedQty, purchaseRate);
+          setMessage(`✅ Raw Material Received: ${receivedQty} ${rm.unit} of ${rm.name}. AP Updated.`);
+        } else {
+          onReceiveMaterial(null, 0, 0, { spareName, vendor, qty: receivedQty, rate: purchaseRate });
+          setMessage(`✅ Expense Logged: ${spareName} for Rs ${totalAmount.toLocaleString()}`);
+          setSpareName("");
+        }
+
+        setQty(""); 
+        setRate("");
+        setVendor("");
+        setTimeout(() => setMessage(""), 4000);
+      };
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Procurement & Expense Management</h2>
+          
+          <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-700 border-b pb-2">New Purchase Entry</h3>
+            {message && <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm rounded">{message}</div>}
+            
+            <div className="flex gap-4 mb-2">
+              <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+                <input type="radio" name="purchaseType" checked={purchaseType === "raw"} onChange={() => setPurchaseType("raw")} />
+                Raw Material (Updates Store & AP)
+              </label>
+              <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+                <input type="radio" name="purchaseType" checked={purchaseType === "spare"} onChange={() => setPurchaseType("spare")} />
+                Spare Parts / Expense
+              </label>
+            </div>
+
+            <form onSubmit={handleReceive} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              {purchaseType === "raw" ? (
+                <div className="flex flex-col gap-1 w-full">
+                  <label className="text-xs font-semibold text-slate-600 uppercase">Raw Material</label>
+                  <select value={selectedRmId} onChange={(e) => setSelectedRmId(e.target.value)} className="px-3 py-2 border border-slate-300 rounded text-sm w-full bg-white">
+                    {rawMaterials.map(rm => (
+                      <option key={rm.id} value={rm.id}>{rm.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <Input label="Spare Part Name" placeholder="e.g. Belts, Filter" value={spareName} onChange={(e) => setSpareName(e.target.value)} required />
+              )}
+
+              <Input label="Vendor Name" placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} required />
+              <Input label="Quantity" type="number" step="0.01" value={qty} onChange={(e) => setQty(e.target.value)} required />
+              <Input label="Unit Price (Rs)" type="number" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} required />
+
+              <div className="md:col-span-4 flex justify-end pt-2">
+                <Button type="submit" variant="success">Process Purchase</Button>
+              </div>
+            </form>
+          </div>
+
+          <DataTable title="Purchase Orders & Expenses (Linked to Store & Accounts)" columns={[
+            { key: "id", label: "PO #" }, 
+            { key: "type", label: "Type" }, 
+            { key: "vendor", label: "Vendor" }, 
+            { key: "item", label: "Item" }, 
+            { key: "total", label: "Amount" },
+            { key: "status", label: "Status" }
+          ]} data={purchases} />
+        </div>
+      );
+    }
+
+    // --- SALES MODULE ---
+    function SalesModule({ finishedGoods, onAddSale, salesOrders }) {
+      const [clientName, setClientName] = useState("");
+      const [selectedProductId, setSelectedProductId] = useState(finishedGoods[0]?.id || "");
+      const [quantity, setQuantity] = useState("");
+      const [message, setMessage] = useState("");
+
+      const handleAddOrder = (e) => {
+        e.preventDefault();
+        if (!clientName || !quantity || !selectedProductId) return;
+
+        const product = finishedGoods.find(p => p.id === parseInt(selectedProductId));
+        const qtyNum = parseFloat(quantity);
+
+        onAddSale({
+          clientName,
+          productId: parseInt(selectedProductId),
+          productName: product.name,
+          quantity: qtyNum,
+          unit: product.unit,
+          rate: 500, // Example rate
+        });
+
+        setClientName("");
+        setQuantity("");
+        setMessage(`✅ Sales order created for ${qtyNum} ${product.unit} of ${product.name}`);
+        setTimeout(() => setMessage(""), 4000);
+      };
+
+      const salesTableData = salesOrders.map(order => ({
+        ...order,
+        amount: "Rs " + (order.quantity * order.rate).toLocaleString()
+      }));
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Sales Orders & Invoicing</h2>
+
+          {message && <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm rounded">{message}</div>}
+
+          <form onSubmit={handleAddOrder} className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              <Input label="Client Name" placeholder="Client Name" value={clientName} onChange={(e) => setClientName(e.target.value)} required />
+              
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-slate-600 uppercase">Product</label>
+                <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)} className="px-3 py-2 border border-slate-300 rounded text-sm bg-white">
+                  {finishedGoods.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} (Stock: {item.stock})</option>
+                  ))}
+                </select>
+              </div>
+
+              <Input label="Quantity" type="number" placeholder="0.00" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
+              
+              <Button type="submit" variant="success">Create Sales Order</Button>
+            </div>
+          </form>
+
+          <DataTable title="Sales Orders (Linked to Store & Accounts)" columns={[
+            { key: "id", label: "Order #" }, 
+            { key: "clientName", label: "Client" }, 
+            { key: "productName", label: "Product" }, 
+            { key: "quantity", label: "Qty" },
+            { key: "unit", label: "Unit" },
+            { key: "amount", label: "Amount" }
+          ]} data={salesTableData} />
+        </div>
+      );
+    }
+
+    // --- ACCOUNTS MODULE ---
+    function AccountsModule({ purchases, salesOrders, finishedGoods }) {
+      const generateLedger = () => {
+        const ledger = [];
+        let balance = 500000; // Opening balance
+
+        // Add purchases to ledger
+        purchases.forEach(purchase => {
+          const amount = parseFloat(purchase.total.replace(/[^\d.-]/g, ''));
+          if (purchase.type === "Raw Material") {
+            ledger.push({
+              id: purchase.id,
+              date: purchase.date || new Date().toISOString().split('T')[0],
+              particulars: `${purchase.type}: ${purchase.item} - AP`,
+              debit: "",
+              credit: amount.toLocaleString(undefined, {minimumFractionDigits: 2}),
+              balance: (balance - amount).toLocaleString(undefined, {minimumFractionDigits: 2})
+            });
+            balance -= amount;
+          } else {
+            ledger.push({
+              id: purchase.id,
+              date: purchase.date || new Date().toISOString().split('T')[0],
+              particulars: `Expense: ${purchase.item}`,
+              debit: amount.toLocaleString(undefined, {minimumFractionDigits: 2}),
+              credit: "",
+              balance: (balance - amount).toLocaleString(undefined, {minimumFractionDigits: 2})
+            });
+            balance -= amount;
+          }
+        });
+
+        // Add sales to ledger
+        salesOrders.forEach(order => {
+          const amount = order.quantity * order.rate;
+          ledger.push({
+            id: "SO-" + order.id,
+            date: order.date || new Date().toISOString().split('T')[0],
+            particulars: `Sales: ${order.productName} to ${order.clientName}`,
+            debit: amount.toLocaleString(undefined, {minimumFractionDigits: 2}),
+            credit: "",
+            balance: (balance + amount).toLocaleString(undefined, {minimumFractionDigits: 2})
+          });
+          balance += amount;
+        });
+
+        return ledger;
+      };
+
+      const ledgerData = generateLedger();
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Accounts & General Ledger</h2>
+          <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div><p className="text-2xl font-bold text-indigo-600">Rs {(500000 - 150000).toLocaleString()}</p><p className="text-xs text-slate-500">Cash Balance</p></div>
+              <div><p className="text-2xl font-bold text-rose-600">Rs {(150000).toLocaleString()}</p><p className="text-xs text-slate-500">Accounts Payable</p></div>
+              <div><p className="text-2xl font-bold text-emerald-600">Rs {(50000).toLocaleString()}</p><p className="text-xs text-slate-500">Accounts Receivable</p></div>
+            </div>
+          </div>
+          <DataTable title="General Ledger (Auto-Updated from All Modules)" columns={[
+            { key: "date", label: "Date" }, 
+            { key: "particulars", label: "Particulars" }, 
+            { key: "debit", label: "Debit (Rs)" }, 
+            { key: "credit", label: "Credit (Rs)" }, 
+            { key: "balance", label: "Balance (Rs)" }
+          ]} data={ledgerData} />
+        </div>
+      );
+    }
+
+    // --- ADMIN MODULE ---
+    function AdminModule({ finishedGoods, rawMaterials, productionRecords, salesOrders, purchases }) {
+      const stats = {
+        totalProducts: finishedGoods.length,
+        totalRawMaterials: rawMaterials.length,
+        productionBatches: productionRecords.length,
+        salesOrders: salesOrders.length,
+        purchases: purchases.length,
+        totalInventoryValue: finishedGoods.reduce((sum, item) => sum + (item.stock * 500), 0) + rawMaterials.reduce((sum, item) => sum + (item.stock * item.costPerUnit), 0)
+      };
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Admin Dashboard & System Overview</h2>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+              <p className="text-3xl font-bold text-indigo-600">{stats.totalProducts}</p>
+              <p className="text-sm text-slate-500">Finished Products</p>
+            </div>
+            <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+              <p className="text-3xl font-bold text-blue-600">{stats.totalRawMaterials}</p>
+              <p className="text-sm text-slate-500">Raw Materials</p>
+            </div>
+            <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+              <p className="text-3xl font-bold text-emerald-600">{stats.productionBatches}</p>
+              <p className="text-sm text-slate-500">Production Batches</p>
+            </div>
+            <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+              <p className="text-3xl font-bold text-purple-600">{stats.salesOrders}</p>
+              <p className="text-sm text-slate-500">Sales Orders</p>
+            </div>
+            <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+              <p className="text-3xl font-bold text-orange-600">{stats.purchases}</p>
+              <p className="text-sm text-slate-500">Purchases</p>
+            </div>
+            <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
+              <p className="text-3xl font-bold text-rose-600">Rs {(stats.totalInventoryValue / 1000000).toFixed(1)}M</p>
+              <p className="text-sm text-slate-500">Total Inventory Value</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded border border-slate-200 shadow-sm space-y-4">
+            <h3 className="font-semibold text-slate-700">System Management</h3>
+            <p className="text-sm text-slate-500">All modules are interconnected. Changes in one module automatically update related modules.</p>
+            <div className="flex gap-3">
+              <Button>Backup Database</Button>
+              <Button variant="secondary">Generate Report</Button>
+              <Button variant="secondary">User Permissions</Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // --- DASHBOARD ---
+    function Dashboard({ stats }) {
+      return (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Dashboard Overview</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white p-4 rounded shadow">
+              <p className="text-3xl font-bold">{stats.productionToday}</p>
+              <p className="text-sm opacity-90">Production Today</p>
+            </div>
+            <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-4 rounded shadow">
+              <p className="text-3xl font-bold">{stats.salesOrders}</p>
+              <p className="text-sm opacity-90">Sales Orders</p>
+            </div>
+            <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-4 rounded shadow">
+              <p className="text-3xl font-bold">{stats.purchases}</p>
+              <p className="text-sm opacity-90">Purchases</p>
+            </div>
+            <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-4 rounded shadow">
+              <p className="text-3xl font-bold">Rs 2.5M</p>
+              <p className="text-sm opacity-90">Cash Balance</p>
+            </div>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 p-4 rounded">
+            <p className="text-sm text-blue-900"><strong>ℹ️ How It Works:</strong> All 5 modules are interconnected. Production consumes Raw Materials → Store updates → Accounts logs costs. Sales orders affect Finished Goods inventory.</p>
+          </div>
+        </div>
+      );
+    }
+
+    // --- MAIN APP ---
+    function App() {
+      const { token, role, fullName, login, logout } = useAuth();
+      const [activeTab, setActiveTab] = useState("dashboard");
+      const [finishedGoods, setFinishedGoods] = useState(initialFinishedGoods);
+      const [rawMaterials, setRawMaterials] = useState(initialRawMaterials);
+      const [productionRecords, setProductionRecords] = useState([]);
+      const [salesOrders, setSalesOrders] = useState([]);
+      const [purchases, setPurchases] = useState([]);
+
+      const handleAddProduction = useCallback((prodData) => {
+        setProductionRecords(prev => [...prev, { ...prodData, id: prev.length + 1 }]);
+        if (prodData.status === "Completed") {
+          setFinishedGoods(prev => prev.map(item => 
+            item.id === prodData.productId ? { ...item, stock: item.stock + prodData.quantity } : item
+          ));
+        }
+      }, []);
+
+      const handleReceiveMaterial = useCallback((rmId, addedQty, newRate, expenseData) => {
+        if (expenseData) {
+          const totalAmount = expenseData.qty * expenseData.rate;
+          setPurchases(prev => [...prev, {
+            id: `PC-${prev.length + 100}`,
+            type: "Spare Parts / Expense",
+            vendor: expenseData.vendor,
+            item: expenseData.spareName,
+            total: `Rs ${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}`,
+            status: "Expense Logged",
+            date: new Date().toISOString().split('T')[0]
+          }]);
+        } else {
+          const totalAmount = addedQty * newRate;
+          setPurchases(prev => [...prev, {
+            id: `PO-${prev.length + 100}`,
+            type: "Raw Material",
+            vendor: "Vendor",
+            item: `${rawMaterials.find(r => r.id === rmId)?.name} (${addedQty})`,
+            total: `Rs ${totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}`,
+            status: "Inventory Updated",
+            date: new Date().toISOString().split('T')[0]
+          }]);
+
+          setRawMaterials(prev => prev.map(rm => {
+            if (rm.id === rmId) {
+              const oldTotalValue = rm.stock * rm.costPerUnit;
+              const newTotalValue = addedQty * newRate;
+              const newStock = rm.stock + addedQty;
+              const newAvgRate = (oldTotalValue + newTotalValue) / newStock;
+              return { ...rm, stock: newStock, costPerUnit: newAvgRate };
+            }
+            return rm;
+          }));
+        }
+      }, [rawMaterials]);
+
+      const handleAddSale = useCallback((saleData) => {
+        setSalesOrders(prev => [...prev, { ...saleData, id: prev.length + 1, date: new Date().toISOString().split('T')[0] }]);
+        setFinishedGoods(prev => prev.map(item => 
+          item.id === saleData.productId ? { ...item, stock: Math.max(0, item.stock - saleData.quantity) } : item
+        ));
+      }, []);
+
+      if (!token) return <LoginScreen onLogin={login} />;
+
+      const tabs = [
+        { id: "dashboard", label: "📊 Dashboard" },
+        { id: "production", label: "🏭 Production" },
+        { id: "store", label: "📦 Store" },
+        { id: "procurement", label: "🛒 Procurement" },
+        { id: "sales", label: "💰 Sales" },
+        { id: "accounts", label: "📊 Accounts" },
+        { id: "admin", label: "⚙️ Admin" },
+      ];
+
+      const dashboardStats = {
+        productionToday: productionRecords.filter(r => r.date === new Date().toISOString().split('T')[0]).length,
+        salesOrders: salesOrders.length,
+        purchases: purchases.length
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-100">
+          <header className="bg-gradient-to-r from-slate-900 to-slate-800 text-white px-6 py-3 flex justify-between items-center shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-lg text-indigo-400">🏭 Royal Crete ERP</span>
+              <span className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-600 uppercase">{role}</span>
+            </div>
+            <div className="flex items-center gap-4 text-sm">
+              <span className="text-slate-300">{fullName}</span>
+              <Button onClick={logout} variant="danger">Sign Out</Button>
+            </div>
+          </header>
+
+          <nav className="bg-white border-b border-slate-200 px-6 flex gap-1 overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap ${
+                  activeTab === tab.id ? "border-indigo-600 text-indigo-600 bg-indigo-50" : "border-transparent text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <main className="p-6 flex-1 max-w-7xl mx-auto w-full">
+            {activeTab === "dashboard" && <Dashboard stats={dashboardStats} />}
+            {activeTab === "production" && <ProductionModule finishedGoods={finishedGoods} rawMaterials={rawMaterials} onAddProduction={handleAddProduction} productionRecords={productionRecords} />}
+            {activeTab === "store" && <StoreModule finishedGoods={finishedGoods} rawMaterials={rawMaterials} productionRecords={productionRecords} salesOrders={salesOrders} />}
+            {activeTab === "procurement" && <ProcurementModule rawMaterials={rawMaterials} onReceiveMaterial={handleReceiveMaterial} purchases={purchases} />}
+            {activeTab === "sales" && <SalesModule finishedGoods={finishedGoods} onAddSale={handleAddSale} salesOrders={salesOrders} />}
+            {activeTab === "accounts" && <AccountsModule purchases={purchases} salesOrders={salesOrders} finishedGoods={finishedGoods} />}
+            {activeTab === "admin" && <AdminModule finishedGoods={finishedGoods} rawMaterials={rawMaterials} productionRecords={productionRecords} salesOrders={salesOrders} purchases={purchases} />}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
